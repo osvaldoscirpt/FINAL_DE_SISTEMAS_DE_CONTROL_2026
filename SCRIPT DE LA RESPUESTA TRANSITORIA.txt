@@ -1,0 +1,5 @@
+num = [27.59];
+den = [1 0.2 27.59];
+G = tf(num,den);
+step(G)
+grid on
