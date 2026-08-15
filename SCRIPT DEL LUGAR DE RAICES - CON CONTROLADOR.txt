@@ -1,0 +1,207 @@
+clc
+clear
+close all
+
+%% =========================================================
+% SISTEMA COMPENSADO
+% Gc(s) = K / [s (s+10)]
+% =========================================================
+
+% Polos del sistema compensado
+polos = [0 ; -10];
+
+% No hay ceros finitos
+ceros = [];
+
+% Numerador y denominador (monic)
+N = 1;                  % numerador = 1
+D = poly(polos);        % denominador = s(s+10) = [1 10 0]
+
+% Para el cálculo de raíces con K
+Ncomp = N;              % ya es grado compatible (se rellena solo)
+
+
+%% =========================================================
+% MOSTRAR POLOS Y CEROS
+% =========================================================
+disp(' ')
+disp('==========================================================')
+disp(' SISTEMA COMPENSADO - POLOS Y CEROS')
+disp('==========================================================')
+fprintf('Polo 1:  s = %10.5f\n', polos(1));
+fprintf('Polo 2:  s = %10.5f\n', polos(2));
+fprintf('\nNo hay ceros finitos.\n');
+fprintf('Ceros impropios: 2 (en el infinito)\n');
+
+
+%% =========================================================
+% PUNTOS DE ENTRADA / SALIDA
+% =========================================================
+% Para 1/[s(s+10)] el único punto de ruptura es s = -5
+sBreak = -5;
+KBreak = 25;            % K = |s(s+10)| en s=-5 → 25
+
+
+%% =========================================================
+% CENTROIDE
+% =========================================================
+n = 2;                  % polos
+m = 0;                  % ceros finitos
+centroide = (sum(polos) - sum(ceros)) / (n - m);
+% centroide = -5
+
+
+%% =========================================================
+% RANGO DE K
+% =========================================================
+Kpos = logspace(-3, 4, 2000);
+Kneg = -logspace(-3, 4, 1000);
+
+
+%% =========================================================
+% SEGUIMIENTO DE RAÍCES K > 0
+% =========================================================
+rootsPos = zeros(2, length(Kpos));
+
+for kidx = 1:length(Kpos)
+    rootsPos(:, kidx) = roots(D + Kpos(kidx)*[0 0 N]).';
+end
+
+
+%% =========================================================
+% SEGUIMIENTO DE RAÍCES K < 0
+% =========================================================
+rootsNeg = zeros(2, length(Kneg));
+
+for kidx = 1:length(Kneg)
+    rootsNeg(:, kidx) = roots(D + Kneg(kidx)*[0 0 N]).';
+end
+
+
+%% =========================================================
+% LÍMITES DEL GRÁFICO
+% =========================================================
+xMin = -15;
+xMax = 5;
+yMax = 15;
+
+
+%% =========================================================
+% FIGURA
+% =========================================================
+figure('Color','w','Position',[100 100 900 700])
+hold on
+grid on
+box on
+
+
+%% =========================================================
+% RECORRIDOS K > 0 (línea continua)
+% =========================================================
+% Rama superior e inferior (cuando se vuelven complejas)
+plot(real(rootsPos(1,:)), imag(rootsPos(1,:)), 'r-', 'LineWidth', 2.5);
+plot(real(rootsPos(2,:)), imag(rootsPos(2,:)), 'b-', 'LineWidth', 2.5);
+
+
+%% =========================================================
+% RECORRIDOS K < 0 (línea discontinua)
+% =========================================================
+plot(real(rootsNeg(1,:)), imag(rootsNeg(1,:)), 'r--', 'LineWidth', 2.0);
+plot(real(rootsNeg(2,:)), imag(rootsNeg(2,:)), 'b--', 'LineWidth', 2.0);
+
+
+%% =========================================================
+% EJE REAL (tramo del LR para K>0)
+% =========================================================
+plot([-10 0], [0 0], 'k-', 'LineWidth', 3.5)   % segmento real del LR
+
+
+%% =========================================================
+% POLOS
+% =========================================================
+plot(real(polos), imag(polos), 'kx', 'MarkerSize', 14, 'LineWidth', 3);
+
+
+%% =========================================================
+% PUNTO DE RUPTURA
+% =========================================================
+plot(-5, 0, 'ks', 'MarkerSize', 12, 'MarkerFaceColor', 'y', 'LineWidth', 2);
+text(-5, 1.2, 'Punto de ruptura (-5)', 'FontSize', 10, 'FontWeight', 'bold', ...
+     'HorizontalAlignment', 'center', 'BackgroundColor', 'w');
+
+
+%% =========================================================
+% ASÍNTOTAS (±90° desde el centroide -5)
+% =========================================================
+plot([-5 -5], [-yMax yMax], 'm--', 'LineWidth', 1.8);   % asíntota vertical
+
+
+%% =========================================================
+% CENTROIDE
+% =========================================================
+plot(-5, 0, 'md', 'MarkerSize', 11, 'MarkerFaceColor', 'm', 'LineWidth', 2);
+text(-5, -1.8, 'Centroide = -5', 'FontSize', 10, 'FontWeight', 'bold', ...
+     'HorizontalAlignment', 'center', 'BackgroundColor', 'w');
+
+
+%% =========================================================
+% TEXTOS DE K
+% =========================================================
+text(-7.5, 0.8, 'K > 0', 'Color', 'k', 'FontSize', 11, 'FontWeight', 'bold', ...
+     'BackgroundColor', 'w');
+text(-2.5, 0.8, 'K > 0', 'Color', 'k', 'FontSize', 11, 'FontWeight', 'bold', ...
+     'BackgroundColor', 'w');
+
+text(-12, 8, 'K > 25 (complejas)', 'FontSize', 10, 'FontWeight', 'bold', ...
+     'BackgroundColor', 'w');
+text(-12, -8, 'K > 25 (complejas)', 'FontSize', 10, 'FontWeight', 'bold', ...
+     'BackgroundColor', 'w');
+
+
+%% =========================================================
+% ETIQUETAS DE POLOS
+% =========================================================
+text(0.4, 0.7, 'P1 (0)', 'FontSize', 11, 'FontWeight', 'bold');
+text(-10.8, 0.7, 'P2 (-10)', 'FontSize', 11, 'FontWeight', 'bold');
+
+
+%% =========================================================
+% EJES
+% =========================================================
+xline(0, 'k-', 'LineWidth', 1.2);
+yline(0, 'k-', 'LineWidth', 1.2);
+
+
+%% =========================================================
+% LÍMITES Y ETIQUETAS
+% =========================================================
+xlim([xMin xMax])
+ylim([-yMax yMax])
+
+xlabel('Parte Real - \sigma', 'FontSize', 12);
+ylabel('Parte Imaginaria - j\omega', 'FontSize', 12);
+title('Lugar de las Raíces del Sistema Compensado', ...
+      'FontSize', 14, 'FontWeight', 'bold');
+
+legend({'Rama 1 (K>0)', 'Rama 2 (K>0)', ...
+        'Rama 1 (K<0)', 'Rama 2 (K<0)'}, ...
+        'Location', 'northeast', 'FontSize', 9);
+
+set(gca, 'FontSize', 11)
+hold off
+
+
+%% =========================================================
+% INFORMACIÓN ADICIONAL EN CONSOLA
+% =========================================================
+disp(' ')
+disp('==========================================================')
+disp(' INFORMACIÓN DEL LUGAR DE LAS RAÍCES COMPENSADO')
+disp('==========================================================')
+fprintf('Polos de lazo abierto : 0 y -10\n');
+fprintf('Ceros finitos         : ninguno\n');
+fprintf('Centroide             : -5\n');
+fprintf('Punto de ruptura      : s = -5  (K = 25)\n');
+fprintf('Asíntotas             : ±90° (recta vertical Re = -5)\n');
+fprintf('\nPara respuesta sobreamortiguada : 0 < K ≤ 25\n');
+fprintf('Margen de ganancia              : infinito (estable ∀ K > 0)\n');
