@@ -1,0 +1,673 @@
+clc
+clear
+close all
+
+%% =========================================================
+% SISTEMA  (G(s) dado por el usuario)
+% =========================================================
+
+% Ceros exactos
+ceros = [-228.57 ; -33.28];
+
+% Polos (se hace conjugado exacto promediando el par cercano al origen)
+p_real_grande = 23.97;
+p_imag_grande = 35.18;
+p_real_chico  = (0.10 + 0.109843)/2;   % ≈ 0.1049215
+p_imag_chico  = 5.25;
+
+polos = [ ...
+    -p_real_grande + 1j*p_imag_grande ; ...
+    -p_real_grande - 1j*p_imag_grande ; ...
+    -p_real_chico  + 1j*p_imag_chico  ; ...
+    -p_real_chico  - 1j*p_imag_chico  ];
+
+% Polinomios (coeficientes reales)
+N = 6.57 * poly(ceros);          % numerador
+D = real(poly(polos));           % denominador (forzamos real)
+
+% Para el cálculo de raíces con K (mismo grado)
+Ncomp = [0 0 N];
+
+
+%% =========================================================
+% ORDENAR POLOS Y CEROS
+% =========================================================
+
+% Ordenar polos por parte real
+[~,orden] = sort(real(polos));
+polos = polos(orden);
+
+% Ordenar ceros por parte real (Z1 más a la izquierda)
+[~,ordenZ] = sort(real(ceros));
+ceros = ceros(ordenZ);
+
+
+%% =========================================================
+% MOSTRAR POLOS
+% =========================================================
+
+disp(' ')
+disp('==========================================================')
+disp(' POLOS DEL SISTEMA')
+disp('==========================================================')
+
+for i = 1:length(polos)
+    fprintf('Polo %d:  s = %10.5f %+.5fj\n', ...
+        i, real(polos(i)), imag(polos(i)));
+end
+
+
+%% =========================================================
+% MOSTRAR CEROS
+% =========================================================
+
+disp(' ')
+disp('==========================================================')
+disp(' CEROS DEL SISTEMA')
+disp('==========================================================')
+
+for i = 1:length(ceros)
+    fprintf('Cero %d:   s = %10.5f %+.5fj\n', ...
+        i, real(ceros(i)), imag(ceros(i)));
+end
+
+fprintf('\nCero impropio: s = infinito\n');
+
+
+%% =========================================================
+% PUNTOS DE ENTRADA / SALIDA
+% =========================================================
+
+dD = polyder(D);
+dN = polyder(N);
+
+A = conv(dD, N);
+B = conv(D, dN);
+
+numBreak = A - B;
+
+sBreak = roots(numBreak);
+
+sReales = [];
+KReales = [];
+
+for i = 1:length(sBreak)
+    s = sBreak(i);
+    if abs(imag(s)) < 1e-6
+        s = real(s);
+        if abs(polyval(N, s)) > 1e-10
+            K = -polyval(D, s) / polyval(N, s);
+            sReales(end+1) = s;
+            KReales(end+1) = K;
+        end
+    end
+end
+
+
+%% =========================================================
+% ORDENAR PUNTOS E/S
+% =========================================================
+
+[sReales, ordenES] = sort(sReales);
+KReales = KReales(ordenES);
+
+
+%% =========================================================
+% MOSTRAR PUNTOS E/S
+% =========================================================
+
+disp(' ')
+disp('==========================================================')
+disp(' PUNTOS DE ENTRADA / SALIDA')
+disp('==========================================================')
+
+for i = 1:length(sReales)
+    fprintf('Punto %d:  s = %10.5f   (K = %.5g)\n', ...
+        i, sReales(i), KReales(i));
+end
+
+% Identificar los puntos clave
+idxEscape    = 2;          % ≈ -46.84  (K>0)
+idxSalidaCero = 3;         % ≈ 0      (K<0)
+sEscape   = sReales(idxEscape);
+sSalida0  = sReales(idxSalidaCero);
+
+
+%% =========================================================
+% CENTROIDE
+% =========================================================
+
+n = length(D) - 1;
+m = length(N) - 1;
+
+centroide = real((sum(polos) - sum(ceros)) / (n - m));
+
+disp(' ')
+disp('==========================================================')
+fprintf(' CENTROIDE DE LAS ASINTOTAS = %.5f\n', centroide)
+disp('==========================================================')
+
+
+%% =========================================================
+% RANGO DE K
+% =========================================================
+
+Kpos = logspace(-5, 6, 3500);
+Kneg = -logspace(-5, 6, 3500);
+
+
+%% =========================================================
+% PERMUTACIONES
+% =========================================================
+
+perms4 = perms(1:4);
+
+
+%% =========================================================
+% SEGUIMIENTO K > 0
+% =========================================================
+
+rootsPos = zeros(4, length(Kpos));
+
+rActual = roots(D + Kpos(1)*Ncomp);
+
+asignacion = zeros(1, 4);
+usados = false(1, 4);
+
+for i = 1:4
+    dist = abs(rActual - polos(i));
+    dist(usados) = inf;
+    [~, idx] = min(dist);
+    asignacion(i) = idx;
+    usados(idx) = true;
+end
+
+rootsPos(:, 1) = rActual(asignacion).';
+
+for kidx = 2:length(Kpos)
+    rActual = roots(D + Kpos(kidx)*Ncomp);
+    rAnterior = rootsPos(:, kidx-1);
+
+    mejorCosto = inf;
+    mejorPerm = [];
+
+    for p = 1:size(perms4, 1)
+        candidato = rActual(perms4(p, :));
+        costo = sum(abs(candidato(:) - rAnterior(:)));
+        if costo < mejorCosto
+            mejorCosto = costo;
+            mejorPerm = perms4(p, :);
+        end
+    end
+
+    rootsPos(:, kidx) = rActual(mejorPerm).';
+end
+
+
+%% =========================================================
+% ASIGNACIÓN FORZADA DE RAMAS K > 0
+% =========================================================
+
+rootsPosOriginal = rootsPos;
+inicioPos = rootsPosOriginal(:, 1);
+
+distP1 = abs(inicioPos - polos(1));
+distP2 = abs(inicioPos - polos(2));
+distP3 = abs(inicioPos - polos(3));
+distP4 = abs(inicioPos - polos(4));
+
+[~, ramaP1] = min(distP1);
+distP2(ramaP1) = inf;
+[~, ramaP2] = min(distP2);
+distP3([ramaP1 ramaP2]) = inf;
+[~, ramaP3] = min(distP3);
+distP4([ramaP1 ramaP2 ramaP3]) = inf;
+[~, ramaP4] = min(distP4);
+
+rootsPos(1, :) = rootsPosOriginal(ramaP1, :);   % ROJO
+rootsPos(2, :) = rootsPosOriginal(ramaP2, :);   % AZUL
+rootsPos(3, :) = rootsPosOriginal(ramaP3, :);   % VERDE
+rootsPos(4, :) = rootsPosOriginal(ramaP4, :);   % VIOLETA
+
+
+%% =========================================================
+% INFORMACIÓN DE LAS RAMAS K > 0
+% =========================================================
+
+disp(' ')
+disp('==========================================================')
+disp(' ASIGNACION DE RECORRIDOS K > 0')
+disp('==========================================================')
+fprintf('Rojo    -> pasa por P1  (termina cerca de Z1)\n');
+fprintf('Azul    -> pasa por P2  (va hacia -∞ / S1impropio)\n');
+fprintf('Verde   -> pasa por P3  (va hacia +j∞ / S3impropio)\n');
+fprintf('Violeta -> pasa por P4  (va hacia -j∞ / S4impropio)\n');
+
+
+%% =========================================================
+% SEGUIMIENTO K < 0
+% =========================================================
+
+rootsNeg = zeros(4, length(Kneg));
+
+rActual = roots(D + Kneg(1)*Ncomp);
+
+asignacion = zeros(1, 4);
+usados = false(1, 4);
+
+for i = 1:4
+    dist = abs(rActual - polos(i));
+    dist(usados) = inf;
+    [~, idx] = min(dist);
+    asignacion(i) = idx;
+    usados(idx) = true;
+end
+
+rootsNeg(:, 1) = rActual(asignacion).';
+
+for kidx = 2:length(Kneg)
+    rActual = roots(D + Kneg(kidx)*Ncomp);
+    rAnterior = rootsNeg(:, kidx-1);
+
+    mejorCosto = inf;
+    mejorPerm = [];
+
+    for p = 1:size(perms4, 1)
+        candidato = rActual(perms4(p, :));
+        costo = sum(abs(candidato(:) - rAnterior(:)));
+        if costo < mejorCosto
+            mejorCosto = costo;
+            mejorPerm = perms4(p, :);
+        end
+    end
+
+    rootsNeg(:, kidx) = rActual(mejorPerm).';
+end
+
+
+%% =========================================================
+% ASIGNACIÓN FORZADA DE RAMAS K < 0
+% =========================================================
+
+rootsNegOriginal = rootsNeg;
+inicioNeg = rootsNegOriginal(:, 1);
+
+distP1n = abs(inicioNeg - polos(1));
+distP2n = abs(inicioNeg - polos(2));
+distP3n = abs(inicioNeg - polos(3));
+distP4n = abs(inicioNeg - polos(4));
+
+[~, ramaP1n] = min(distP1n);
+distP2n(ramaP1n) = inf;
+[~, ramaP2n] = min(distP2n);
+distP3n([ramaP1n ramaP2n]) = inf;
+[~, ramaP3n] = min(distP3n);
+distP4n([ramaP1n ramaP2n ramaP3n]) = inf;
+[~, ramaP4n] = min(distP4n);
+
+rootsNeg(1, :) = rootsNegOriginal(ramaP1n, :);   % ROJO
+rootsNeg(2, :) = rootsNegOriginal(ramaP2n, :);   % AZUL
+rootsNeg(3, :) = rootsNegOriginal(ramaP3n, :);   % VERDE
+rootsNeg(4, :) = rootsNegOriginal(ramaP4n, :);   % VIOLETA
+
+
+%% =========================================================
+% LIMITES DEL GRÁFICO
+% =========================================================
+
+xMin = -400;
+xMax = 150;
+yMaxReal = 160;
+
+
+%% =========================================================
+% TRANSFORMACIÓN LOGARÍTMICA SIMÉTRICA
+% =========================================================
+
+transformarY = @(y) sign(y) .* log10(1 + abs(y));
+
+
+%% =========================================================
+% DATOS TRANSFORMADOS
+% =========================================================
+
+yPos = imag(rootsPos);
+yNeg = imag(rootsNeg);
+
+yPosPlot = transformarY(yPos);
+yNegPlot = transformarY(yNeg);
+
+
+%% =========================================================
+% COLORES
+% =========================================================
+
+colores = [
+    0.90 0.10 0.10     % 1 - Rojo
+    0.10 0.35 0.90     % 2 - Azul
+    0.10 0.65 0.25     % 3 - Verde
+    0.65 0.15 0.75     % 4 - Violeta
+];
+
+
+%% =========================================================
+% FIGURA
+% =========================================================
+
+figure('Color', 'w')
+hold on
+grid on
+box on
+
+
+%% =========================================================
+% RECORRIDOS K > 0  (línea gruesa continua)
+% =========================================================
+
+hPos = gobjects(4, 1);
+
+for i = 1:4
+    hPos(i) = plot( ...
+        real(rootsPos(i, :)), ...
+        yPosPlot(i, :), ...
+        '-', ...
+        'Color', colores(i, :), ...
+        'LineWidth', 2.4);
+end
+
+
+%% =========================================================
+% RECORRIDOS K < 0  (traza gruesa discontinua)
+% =========================================================
+
+hNeg = gobjects(4, 1);
+
+for i = 1:4
+    hNeg(i) = plot( ...
+        real(rootsNeg(i, :)), ...
+        yNegPlot(i, :), ...
+        '--', ...
+        'Color', colores(i, :), ...
+        'LineWidth', 3.5);
+end
+
+
+%% =========================================================
+% TRAMOS DEL EJE REAL QUE FALTABAN (FORZADOS)
+% =========================================================
+
+% 1) Rojo K>0 : Z1 → punto de escape (≈ -46.84)
+plot( [ceros(1)  sEscape], [0 0], ...
+      '-', 'Color', colores(1,:), 'LineWidth', 2.4 );
+
+% 2) Verde K<0 : Z2 → punto de salida ≈ 0
+plot( [ceros(2)  sSalida0], [0 0], ...
+      '--', 'Color', colores(3,:), 'LineWidth', 3.5 );
+
+
+%% =========================================================
+% TEXTOS K < 0
+% =========================================================
+
+text(-315, transformarY(30), 'K < 0', ...
+    'Color', colores(1, :), 'FontSize', 11, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'center', 'BackgroundColor', 'w', 'Margin', 2);
+
+text(-315, transformarY(-30), 'K < 0', ...
+    'Color', colores(2, :), 'FontSize', 11, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'center', 'BackgroundColor', 'w', 'Margin', 2);
+
+text(-18, transformarY(0), 'K < 0', ...
+    'Color', colores(3, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+    'BackgroundColor', 'w', 'Margin', 2);
+
+text(75, transformarY(0), 'K < 0', ...
+    'Color', colores(4, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+    'BackgroundColor', 'w', 'Margin', 2);
+
+
+%% =========================================================
+% TEXTOS K > 0
+% =========================================================
+
+text(-150, transformarY(0), 'K > 0', ...
+    'Color', colores(1, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', ...
+    'BackgroundColor', 'w', 'Margin', 2);
+
+% Texto azul K>0 movido más cerca del recorrido azul (sin solaparse)
+text(-90, transformarY(-12), 'K > 0', ...
+    'Color', colores(2, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+    'BackgroundColor', 'w', 'Margin', 2);
+
+text(18, transformarY(12), 'K > 0', ...
+    'Color', colores(3, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'left', 'BackgroundColor', 'w', 'Margin', 2);
+
+text(18, transformarY(-12), 'K > 0', ...
+    'Color', colores(4, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'left', 'BackgroundColor', 'w', 'Margin', 2);
+
+
+%% =========================================================
+% POLOS
+% =========================================================
+
+hPolos = plot(real(polos), transformarY(imag(polos)), ...
+    'kx', 'MarkerSize', 15, 'LineWidth', 3);
+
+
+%% =========================================================
+% CEROS FINITOS
+% =========================================================
+
+hCeros = plot(real(ceros), transformarY(imag(ceros)), ...
+    'ko', 'MarkerSize', 13, 'LineWidth', 2.5, 'MarkerFaceColor', 'w');
+
+
+%% =========================================================
+% PUNTOS DE ENTRADA / SALIDA
+% =========================================================
+
+hBreak = plot(sReales, zeros(size(sReales)), ...
+    'ks', 'MarkerSize', 11, 'MarkerFaceColor', 'y', 'LineWidth', 2);
+
+
+%% =========================================================
+% PUNTOS DE INTERSECCIÓN CON EL EJE IMAGINARIO
+% s = ± j 23.3463
+% =========================================================
+
+wj = 23.3463;                     % valor dado por el usuario
+
+hImag = plot( [0 0], ...
+              [transformarY(wj) transformarY(-wj)], ...
+              'ko', ...                     % punto negro
+              'MarkerSize', 9, ...
+              'MarkerFaceColor', 'k', ...
+              'LineWidth', 1.5);
+
+% Etiquetas de los puntos
+text(4, transformarY(wj)+0.08, sprintf('+j%.4f', wj), ...
+    'FontSize', 9, 'FontWeight', 'bold', ...
+    'Color', 'k', ...
+    'HorizontalAlignment', 'left', ...
+    'BackgroundColor', 'w', 'Margin', 1);
+
+text(4, transformarY(-wj)-0.08, sprintf('-j%.4f', wj), ...
+    'FontSize', 9, 'FontWeight', 'bold', ...
+    'Color', 'k', ...
+    'HorizontalAlignment', 'left', ...
+    'BackgroundColor', 'w', 'Margin', 1);
+
+
+%% =========================================================
+% VALORES NUMÉRICOS E/S
+% =========================================================
+
+for i = 1:length(sReales)
+    text(sReales(i), transformarY(4.5), sprintf('%.2f', sReales(i)), ...
+        'FontSize', 9, 'FontWeight', 'bold', ...
+        'HorizontalAlignment', 'center');
+end
+
+
+%% =========================================================
+% ETIQUETAS DE POLOS
+% =========================================================
+
+for i = 1:length(polos)
+    text(real(polos(i))+4, transformarY(imag(polos(i))+2), ...
+        sprintf('P%d', i), 'FontSize', 10, 'FontWeight', 'bold');
+end
+
+
+%% =========================================================
+% ETIQUETAS DE CEROS FINITOS
+% =========================================================
+
+for i = 1:length(ceros)
+    text(real(ceros(i))+4, transformarY(imag(ceros(i))+2), ...
+        sprintf('Z%d', i), 'FontSize', 10, 'FontWeight', 'bold');
+end
+
+
+%% =========================================================
+% CEROS IMPROPIOS
+% =========================================================
+
+text(xMin + 15, transformarY(8), 'S1impropio', ...
+    'Color', colores(2, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'left', 'BackgroundColor', 'w', 'Margin', 1);
+
+text(xMax - 15, transformarY(8), 'S2impropio', ...
+    'Color', colores(4, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+    'HorizontalAlignment', 'right', 'BackgroundColor', 'w', 'Margin', 1);
+
+% ----- S3impropio y S4impropio ELIMINADOS -----
+% text(centroide + 8, transformarY(yMaxReal - 5), 'S3impropio', ...
+%     'Color', colores(3, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+%     'HorizontalAlignment', 'left', 'BackgroundColor', 'w', 'Margin', 1);
+%
+% text(centroide + 8, transformarY(-yMaxReal + 5), 'S4impropio', ...
+%     'Color', colores(4, :), 'FontSize', 10, 'FontWeight', 'bold', ...
+%     'HorizontalAlignment', 'left', 'BackgroundColor', 'w', 'Margin', 1);
+% ---------------------------------------------
+
+
+%% =========================================================
+% ASÍNTOTA K > 0
+% =========================================================
+
+hAsymPos = plot([centroide centroide], ...
+    [transformarY(-yMaxReal) transformarY(yMaxReal)], ...
+    'm--', 'LineWidth', 1.8);
+
+
+%% =========================================================
+% ASÍNTOTA K < 0
+% =========================================================
+
+hAsymNeg = plot([xMin xMax], [0 0], ...
+    '--', 'Color', [0.85 0.45 0.05], 'LineWidth', 1.8);
+
+
+%% =========================================================
+% CENTROIDE
+% =========================================================
+
+hCentroide = plot(centroide, transformarY(0), ...
+    'md', 'MarkerSize', 10, 'LineWidth', 2, 'MarkerFaceColor', 'm');
+
+text(centroide, transformarY(6), sprintf('Centroide = %.2f', centroide), ...
+    'FontSize', 10, 'FontWeight', 'bold', 'HorizontalAlignment', 'center');
+
+
+%% =========================================================
+% EJES
+% =========================================================
+
+xline(0, 'k-', 'LineWidth', 1.2);
+yline(0, 'k-', 'LineWidth', 1.2);
+
+
+%% =========================================================
+% TICKS DEL EJE IMAGINARIO
+% =========================================================
+
+yTicksOriginal = [ ...
+    -160 -140 -120 -100 -80 -60 -50 -40 -30 -20 -10 ...
+     0 10 20 30 40 50 60 80 100 120 140 160 ];
+
+yTickLabels = { ...
+    '-1.6x10^2' '-140' '-120' '-100' '-80' '-60' '-50' '-40' '-30' '-20' '-10' ...
+    '0' '10' '20' '30' '40' '50' '60' '80' '100' '120' '140' '1.6x10^2' };
+
+yTicksPlot = transformarY(yTicksOriginal);
+[yTicksPlot, ordenTicks] = sort(yTicksPlot);
+yTickLabels = yTickLabels(ordenTicks);
+
+yticks(yTicksPlot)
+yticklabels(yTickLabels)
+
+
+%% =========================================================
+% LÍMITES
+% =========================================================
+
+xlim([xMin xMax])
+ylim([transformarY(-yMaxReal) transformarY(yMaxReal)])
+
+
+%% =========================================================
+% ETIQUETAS DE LOS EJES
+% =========================================================
+
+xlabel('Parte Real - \sigma', 'FontSize', 12);
+ylabel('Parte Imaginaria - j\omega', 'FontSize', 12);
+title('Lugar de las Raíces - Recorridos individuales', ...
+    'FontSize', 14, 'FontWeight', 'bold');
+
+
+%% =========================================================
+% LEYENDA
+% =========================================================
+
+handlesLeyenda = [ ...
+    hPos(1) hNeg(1) ...
+    hPos(2) hNeg(2) ...
+    hPos(3) hNeg(3) ...
+    hPos(4) hNeg(4) ...
+    hPolos hCeros hBreak hImag ...
+    hAsymPos hAsymNeg hCentroide ];
+
+nombresLeyenda = { ...
+    'Rojo - K>0 (P1 → Z1)', ...
+    'Rojo - K<0', ...
+    'Azul - K>0 (P2 → S1impropio)', ...
+    'Azul - K<0', ...
+    'Verde - K>0 (P3 → S3impropio)', ...
+    'Verde - K<0', ...
+    'Violeta - K>0 (P4 → S4impropio)', ...
+    'Violeta - K<0', ...
+    'Polos', ...
+    'Ceros finitos', ...
+    'Entrada / salida', ...
+    'Cruce eje j\omega  (±j23.3463)', ...
+    'Asíntota K>0', ...
+    'Asíntota K<0', ...
+    'Centroide' };
+
+legend(handlesLeyenda, nombresLeyenda, ...
+    'Location', 'eastoutside', 'FontSize', 9);
+
+
+%% =========================================================
+% ASPECTO FINAL
+% =========================================================
+
+set(gca, 'FontSize', 11)
+hold off
