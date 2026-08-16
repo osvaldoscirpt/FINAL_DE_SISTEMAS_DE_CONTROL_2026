@@ -1,0 +1,124 @@
+clc
+clear
+close all
+
+%% =========================================================
+%  PARÁMETROS MODIFICABLES (cambiar solo estos)
+% =========================================================
+Kp          = 20;       % Ganancia K'
+t_final     = 40;        % Tiempo máximo visible en el gráfico [s]
+y_min       = 0;        % Amplitud mínima visible
+y_max       = 3;      % Amplitud máxima visible
+dt          = 0.001;    % Paso de tiempo de simulación
+%% =========================================================
+
+
+%% =========================================================
+%  SISTEMA COMPENSADO
+% =========================================================
+% Gc(s) = K' * (s+33.28)(s+228.57) / 
+%              [ s (s+400) ((s+23.97)^2 + 35.18^2) ]
+
+Z1 = -228.57;
+Z2 = -33.28;
+
+P_int   = 0;
+P_400   = -400;
+P1_real = -23.97;
+P1_imag =  35.18;
+
+%% =========================================================
+%  CONSTRUCCIÓN DE LOS POLINOMIOS
+% =========================================================
+num_Gc = conv([1 -Z1], [1 -Z2]);
+
+den_int  = [1 0];
+den_400  = [1 -P_400];
+den_P12  = [1  -2*P1_real  (P1_real^2 + P1_imag^2)];
+
+den_Gc = conv(conv(den_int, den_400), den_P12);
+
+Gc = tf(Kp * num_Gc, den_Gc);
+T  = feedback(Gc, 1);
+
+%% =========================================================
+%  INFORMACIÓN DEL SISTEMA
+% =========================================================
+disp('==========================================================')
+disp(' SISTEMA COMPENSADO - RESPUESTA TEMPORAL')
+disp('==========================================================')
+fprintf('K'' (Kp) = %.4f\n\n', Kp);
+
+disp('Polos de lazo cerrado:')
+pole(T)
+
+disp(' ')
+disp('Ceros de lazo cerrado:')
+zero(T)
+
+%% =========================================================
+%  RESPUESTA AL ESCALÓN
+% =========================================================
+figure('Color','w','Name','Respuesta Temporal')
+
+t = 0:dt:t_final;
+[y, t] = step(T, t);
+
+plot(t, y, 'b-', 'LineWidth', 2.2)
+grid on
+box on
+hold on
+
+% Línea del valor final
+yfinal = y(end);
+yline(yfinal, 'r--', 'LineWidth', 1.5);
+
+% Banda de ±2 %
+yline(yfinal*0.98, 'k:', 'LineWidth', 1.2);
+yline(yfinal*1.02, 'k:', 'LineWidth', 1.2);
+
+% ---- Límites visibles del gráfico ----
+xlim([0 t_final])
+ylim([y_min y_max])
+
+xlabel('Tiempo [s]', 'FontSize', 12)
+ylabel('Amplitud', 'FontSize', 12)
+title(sprintf('Respuesta al escalón  |  K'' = %.2f', Kp), ...
+      'FontSize', 14, 'FontWeight', 'bold')
+
+legend('y(t)', 'Valor final', 'Banda ±2%', ...
+       'Location', 'best', 'FontSize', 10)
+
+%% =========================================================
+%  CARACTERÍSTICAS DE LA RESPUESTA
+% =========================================================
+S = stepinfo(T);
+
+disp('==========================================================')
+disp(' CARACTERÍSTICAS DE LA RESPUESTA AL ESCALÓN')
+disp('==========================================================')
+fprintf('Tiempo de subida (RiseTime)     : %.4f s\n', S.RiseTime);
+fprintf('Tiempo de asentamiento (Ts 2%%)  : %.4f s\n', S.SettlingTime);
+fprintf('Sobreimpulso (Overshoot)        : %.2f %%\n', S.Overshoot);
+fprintf('Valor de pico                   : %.4f\n', S.Peak);
+fprintf('Tiempo de pico                  : %.4f s\n', S.PeakTime);
+fprintf('Valor final                     : %.4f\n', yfinal);
+disp('==========================================================')
+
+%% =========================================================
+%  DIAGNÓSTICO RÁPIDO
+% =========================================================
+disp(' ')
+if S.Overshoot < 5
+    disp('→ Respuesta prácticamente sobreamortiguada (Overshoot < 5%)')
+elseif S.Overshoot < 15
+    disp('→ Respuesta con poco sobreimpulso')
+else
+    disp('→ Hay sobreimpulso apreciable (considerar bajar K'')')
+end
+
+if abs(yfinal - 1) < 1e-3
+    disp('→ Error de régimen permanente ≈ 0  (cumple ERP = 0)')
+else
+    disp('→ Revisar el error de régimen permanente')
+end

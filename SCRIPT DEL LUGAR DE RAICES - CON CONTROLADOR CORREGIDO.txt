@@ -1,0 +1,313 @@
+clc
+clear
+close all
+
+%% =========================================================
+% SISTEMA RESIDUAL COMPENSADO
+% Gc(s) = K' * (s+33.28)(s+228.57) / [ s(s+400) * ((s+23.97)^2 + 35.18^2) ]
+% =========================================================
+
+gain = 6.57;
+Z1 = -228.57;
+Z2 = -33.28;
+p_real = 23.97;
+p_imag = 35.18;
+c = 400;
+
+% Numerador y denominador
+num = gain * poly([Z1 Z2]);
+quad = [1, 2*p_real, p_real^2 + p_imag^2];
+den  = conv([1 0], conv([1 c], quad));
+
+Npad = [0 0 num];
+
+% Polos y ceros
+polos = [0; -c; -p_real+1j*p_imag; -p_real-1j*p_imag];
+ceros = [Z1; Z2];
+
+[~,ordP] = sort(real(polos)); polos = polos(ordP);
+[~,ordZ] = sort(real(ceros)); ceros = ceros(ordZ);
+
+n = length(polos);
+m = length(ceros);
+
+%% =========================================================
+% MOSTRAR POLOS Y CEROS
+% =========================================================
+disp(' ')
+disp('==========================================================')
+disp(' POLOS DEL SISTEMA COMPENSADO')
+disp('==========================================================')
+for i = 1:n
+    fprintf('Polo %d:  s = %10.5f %+.5fj\n', i, real(polos(i)), imag(polos(i)));
+end
+
+disp(' ')
+disp('==========================================================')
+disp(' CEROS DEL SISTEMA COMPENSADO')
+disp('==========================================================')
+for i = 1:m
+    fprintf('Cero %d:   s = %10.5f %+.5fj\n', i, real(ceros(i)), imag(ceros(i)));
+end
+
+%% =========================================================
+% PUNTOS DE ENTRADA / SALIDA
+% =========================================================
+dD = polyder(den);
+dN = polyder(num);
+
+A = conv(dD, num);
+B = conv(den, dN);
+maxL = max(length(A), length(B));
+A = [zeros(1, maxL-length(A)) A];
+B = [zeros(1, maxL-length(B)) B];
+numBreak = A - B;
+
+sBreak = roots(numBreak);
+
+sReales = [];
+KReales = [];
+for i = 1:length(sBreak)
+    s = sBreak(i);
+    if abs(imag(s)) < 1e-6
+        s = real(s);
+        if abs(polyval(num, s)) > 1e-8
+            K = -polyval(den, s) / polyval(num, s);
+            sReales(end+1) = s;
+            KReales(end+1) = K;
+        end
+    end
+end
+[sReales, ord] = sort(sReales);
+KReales = KReales(ord);
+
+disp(' ')
+disp('==========================================================')
+disp(' PUNTOS DE ENTRADA / SALIDA')
+disp('==========================================================')
+for i = 1:length(sReales)
+    fprintf('Punto %d:  s = %10.4f   (K = %.4g)\n', i, sReales(i), KReales(i));
+end
+
+%% =========================================================
+% CENTROIDE Y ASÍNTOTAS
+% =========================================================
+centroide = real( (sum(polos) - sum(ceros)) / (n-m) );
+angulos = (2*(0:n-m-1)+1)*180/(n-m);
+
+disp(' ')
+disp('==========================================================')
+fprintf(' CENTROIDE = %.4f\n', centroide)
+fprintf(' Ángulos de asíntotas: %.1f° y %.1f°\n', angulos(1), angulos(2))
+disp('==========================================================')
+
+%% =========================================================
+% RANGO DE K
+% =========================================================
+Kpos = logspace(-3, 5, 2500);
+Kneg = -logspace(-3, 5, 2500);
+
+%% =========================================================
+% SEGUIMIENTO K > 0
+% =========================================================
+rootsPos = zeros(n, length(Kpos));
+permsN = perms(1:n);
+
+rActual = roots(den + Kpos(1)*Npad);
+asignacion = zeros(1,n); usados = false(1,n);
+for i = 1:n
+    dist = abs(rActual - polos(i)); dist(usados) = inf;
+    [~,idx] = min(dist); asignacion(i) = idx; usados(idx) = true;
+end
+rootsPos(:,1) = rActual(asignacion).';
+
+for kidx = 2:length(Kpos)
+    rActual = roots(den + Kpos(kidx)*Npad);
+    rAnterior = rootsPos(:,kidx-1);
+    mejorCosto = inf; mejorPerm = 1:n;
+    for p = 1:size(permsN,1)
+        candidato = rActual(permsN(p,:));
+        costo = sum(abs(candidato(:) - rAnterior(:)));
+        if costo < mejorCosto
+            mejorCosto = costo; mejorPerm = permsN(p,:);
+        end
+    end
+    rootsPos(:,kidx) = rActual(mejorPerm).';
+end
+
+%% =========================================================
+% SEGUIMIENTO K < 0
+% =========================================================
+rootsNeg = zeros(n, length(Kneg));
+
+rActual = roots(den + Kneg(1)*Npad);
+asignacion = zeros(1,n); usados = false(1,n);
+for i = 1:n
+    dist = abs(rActual - polos(i)); dist(usados) = inf;
+    [~,idx] = min(dist); asignacion(i) = idx; usados(idx) = true;
+end
+rootsNeg(:,1) = rActual(asignacion).';
+
+for kidx = 2:length(Kneg)
+    rActual = roots(den + Kneg(kidx)*Npad);
+    rAnterior = rootsNeg(:,kidx-1);
+    mejorCosto = inf; mejorPerm = 1:n;
+    for p = 1:size(permsN,1)
+        candidato = rActual(permsN(p,:));
+        costo = sum(abs(candidato(:) - rAnterior(:)));
+        if costo < mejorCosto
+            mejorCosto = costo; mejorPerm = permsN(p,:);
+        end
+    end
+    rootsNeg(:,kidx) = rActual(mejorPerm).';
+end
+
+%% =========================================================
+% TRANSFORMACIÓN LOGARÍTMICA DEL EJE IMAGINARIO
+% =========================================================
+transformarY = @(y) sign(y) .* log10(1 + abs(y));
+
+yPosPlot = transformarY(imag(rootsPos));
+yNegPlot = transformarY(imag(rootsNeg));
+
+%% =========================================================
+% LÍMITES Y COLORES
+% =========================================================
+xMin = -450;
+xMax = 80;
+yMaxReal = 800;
+
+colores = [
+    0.90 0.10 0.10
+    0.10 0.35 0.90
+    0.10 0.65 0.25
+    0.65 0.15 0.75
+];
+
+%% =========================================================
+% FIGURA
+% =========================================================
+figure('Color','w','Position',[60 60 1150 780])
+hold on
+grid on
+box on
+
+% ----- K > 0 -----
+hPos = gobjects(n,1);
+for i = 1:n
+    hPos(i) = plot(real(rootsPos(i,:)), yPosPlot(i,:), '-', ...
+        'Color', colores(i,:), 'LineWidth', 2.3);
+end
+
+% ----- K < 0 -----
+hNeg = gobjects(n,1);
+for i = 1:n
+    hNeg(i) = plot(real(rootsNeg(i,:)), yNegPlot(i,:), '--', ...
+        'Color', colores(i,:), 'LineWidth', 2.9);
+end
+
+% ----- Polos y ceros -----
+hPolos = plot(real(polos), transformarY(imag(polos)), ...
+    'kx', 'MarkerSize', 13, 'LineWidth', 2.8);
+hCeros = plot(real(ceros), transformarY(imag(ceros)), ...
+    'ko', 'MarkerSize', 11, 'LineWidth', 2.2, 'MarkerFaceColor','w');
+
+% ----- Puntos de entrada/salida -----
+hBreak = plot(sReales, zeros(size(sReales)), ...
+    'ks', 'MarkerSize', 11, 'MarkerFaceColor','y', 'LineWidth', 2);
+
+for i = 1:length(sReales)
+    text(sReales(i), transformarY(6), sprintf('%.1f', sReales(i)), ...
+        'FontSize', 9, 'FontWeight','bold', 'HorizontalAlignment','center');
+end
+
+% ----- Centroide -----
+hCentroide = plot(centroide, 0, 'md', 'MarkerSize', 11, ...
+    'LineWidth', 2, 'MarkerFaceColor','m');
+text(centroide, transformarY(10), sprintf('Centroide = %.1f', centroide), ...
+    'FontSize', 10, 'FontWeight','bold', 'HorizontalAlignment','center', ...
+    'BackgroundColor','w');
+
+% ----- Asíntotas -----
+hAsym = plot([centroide centroide], ...
+    [transformarY(-yMaxReal) transformarY(yMaxReal)], ...
+    'm--', 'LineWidth', 1.6);
+
+%% =========================================================
+% ETIQUETAS AUTOMÁTICAS K > 0 y K < 0
+% Colocadas a ±10 del polo de partida de cada rama
+% =========================================================
+
+for i = 1:n
+    % Posición del polo de esta rama
+    xp = real(polos(i));
+    yp = imag(polos(i));
+    yp_plot = transformarY(yp);
+    
+    % ----- K > 0 (un poco hacia la derecha del polo) -----
+    text(xp + 10, yp_plot + 0.08*sign(yp+1e-6), 'K > 0', ...
+        'Color', colores(i,:), ...
+        'FontSize', 10, 'FontWeight', 'bold', ...
+        'BackgroundColor', 'w', 'Margin', 1, ...
+        'HorizontalAlignment', 'left');
+    
+    % ----- K < 0 (un poco hacia la izquierda del polo) -----
+    text(xp - 10, yp_plot - 0.08*sign(yp+1e-6), 'K < 0', ...
+        'Color', colores(i,:), ...
+        'FontSize', 10, 'FontWeight', 'bold', ...
+        'BackgroundColor', 'w', 'Margin', 1, ...
+        'HorizontalAlignment', 'right');
+end
+
+% ----- Ejes -----
+xline(0, 'k-', 'LineWidth', 1.2);
+yline(0, 'k-', 'LineWidth', 1.2);
+
+%% =========================================================
+% TICKS DEL EJE IMAGINARIO (hasta 800)
+% =========================================================
+yTicksOriginal = [-800 -600 -400 -200 -100 -80 -60 -40 -20 0 ...
+                   20 40 60 80 100 200 400 600 800];
+
+yTickLabels = {'-800','-600','-400','-200','-100','-80','-60','-40','-20','0', ...
+               '20','40','60','80','100','200','400','600','800'};
+
+yTicksPlot = transformarY(yTicksOriginal);
+[yTicksPlot, ordT] = sort(yTicksPlot);
+yTickLabels = yTickLabels(ordT);
+
+yticks(yTicksPlot)
+yticklabels(yTickLabels)
+
+xlim([xMin xMax])
+ylim([transformarY(-yMaxReal) transformarY(yMaxReal)])
+
+xlabel('Parte Real - \sigma', 'FontSize', 12)
+ylabel('Parte Imaginaria - j\omega  (escala log)', 'FontSize', 12)
+title('LDR – Sistema residual compensado (P3/P4 cancelados + polo -400)', ...
+      'FontSize', 13, 'FontWeight', 'bold')
+
+%% =========================================================
+% LEYENDA
+% =========================================================
+legend([hPos(1) hNeg(1) hPos(2) hNeg(2) hPos(3) hNeg(3) hPos(4) hNeg(4) ...
+        hPolos hCeros hBreak hCentroide hAsym], ...
+    {'Rama1 K>0','Rama1 K<0','Rama2 K>0','Rama2 K<0', ...
+     'Rama3 K>0','Rama3 K<0','Rama4 K>0','Rama4 K<0', ...
+     'Polos','Ceros','Entrada/Salida','Centroide','Asíntota'}, ...
+    'Location', 'eastoutside', 'FontSize', 9)
+
+set(gca, 'FontSize', 11)
+hold off
+
+%% =========================================================
+% RESUMEN
+% =========================================================
+disp(' ')
+disp('==========================================================')
+disp(' RESUMEN')
+disp('==========================================================')
+disp('ERP = 0          → Sí (tipo 1)')
+disp('MG  = ∞          → Sí (centroide negativo)')
+disp('Sobreamortiguada → Dominante sí (par lejano)')
+disp('==========================================================')
